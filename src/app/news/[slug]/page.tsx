@@ -1,85 +1,103 @@
 
-import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { supabase } from "@/lib/supabase";
+import { ArrowLeft, CalendarDays, Newspaper } from "lucide-react";
+import Header from "@/components/Header";
+import Footer from "@/components/Footer";
+import { news } from "@/lib/news";
 
-export const dynamic = "force-dynamic";
-
-type Props = {
+type PageProps = {
   params: Promise<{ slug: string }>;
 };
 
-export default async function NewsDetailsPage({
-  params,
-}: Props) {
+export async function generateMetadata({ params }: PageProps) {
   const { slug } = await params;
+  const article = news.find((item) => item.slug === slug);
 
-  const { data: article, error } = await supabase
-    .from("news_articles")
-    .select("*")
-    .eq("slug", slug)
-    .eq("status", "published")
-    .maybeSingle();
+  return {
+    title: article ? article.title : "News Not Found",
+    description: article?.excerpt ?? "NEWS 24-এর সর্বশেষ সংবাদ পড়ুন।",
+  };
+}
 
-  if (error) {
-    throw new Error("খবর লোড করা যায়নি।");
-  }
+export default async function NewsDetailsPage({ params }: PageProps) {
+  const { slug } = await params;
+  const article = news.find((item) => item.slug === slug);
 
   if (!article) {
     notFound();
   }
 
   return (
-    <main className="min-h-screen bg-white">
-      <article className="mx-auto max-w-4xl px-4 py-10 sm:px-6">
-        <Link
-          href="/"
-          className="mb-8 inline-block text-sm font-bold text-red-600 hover:underline"
-        >
-          ← NEWS 24 Homepage
-        </Link>
+    <>
+      <Header />
 
-        <p className="mb-3 text-sm font-extrabold uppercase tracking-wide text-red-600">
-          {article.category_label}
-        </p>
-
-        <h1 className="text-3xl font-black leading-tight text-gray-900 sm:text-5xl">
-          {article.title}
-        </h1>
-
-        <p className="mt-5 text-lg leading-8 text-gray-600">
-          {article.excerpt}
-        </p>
-
-        <div className="mt-5 border-y border-gray-200 py-4 text-sm text-gray-500">
-          {article.author} ·{" "}
-          {new Date(
-            article.published_at ?? article.created_at
-          ).toLocaleDateString("bn-BD", {
-            year: "numeric",
-            month: "long",
-            day: "numeric",
-          })}
-        </div>
-
-        {article.image && (
-          <div className="relative mt-8 aspect-video overflow-hidden rounded-xl bg-gray-100">
-            <Image
-              src={article.image}
-              alt={article.title}
-              fill
-              unoptimized
-              className="object-cover"
-              sizes="(max-width: 768px) 100vw, 800px"
-            />
+      <main className="min-h-screen bg-white">
+        <div className="border-b border-slate-200 bg-slate-50">
+          <div className="mx-auto max-w-5xl px-4 py-5 sm:px-6">
+            <Link
+              href="/"
+              className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 transition hover:text-red-700"
+            >
+              <ArrowLeft size={17} />
+              হোমপেজে ফিরে যান
+            </Link>
           </div>
-        )}
-
-        <div className="mt-8 whitespace-pre-wrap text-base leading-8 text-gray-800 sm:text-lg">
-          {article.content}
         </div>
-      </article>
-    </main>
+
+        <article className="mx-auto max-w-4xl px-4 py-10 sm:px-6 sm:py-16">
+          <div className="mb-5 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-red-700">
+            <Newspaper size={16} />
+            {article.categoryLabel}
+          </div>
+
+          <h1 className="text-3xl font-black leading-tight tracking-tight text-[#14243a] sm:text-5xl sm:leading-tight">
+            {article.title}
+          </h1>
+
+          <p className="mt-6 max-w-3xl text-lg leading-9 text-slate-600">
+            {article.excerpt}
+          </p>
+
+          <div className="mt-7 flex flex-wrap items-center gap-4 border-y border-slate-200 py-4 text-sm text-slate-500">
+            <span className="font-bold text-slate-700">
+              {article.author || "NEWS 24 ডেস্ক"}
+            </span>
+
+            <span className="flex items-center gap-2">
+              <CalendarDays size={16} />
+              {article.date}
+            </span>
+          </div>
+
+          {article.image && (
+            <div className="mt-8 overflow-hidden border border-slate-200">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={article.image}
+                alt={article.title}
+                className="max-h-[560px] w-full object-cover"
+              />
+            </div>
+          )}
+
+          <div className="mt-9 whitespace-pre-line text-base leading-9 text-slate-700 sm:text-lg">
+            {article.content || article.excerpt}
+          </div>
+
+          <div className="mt-12 border-t-2 border-[#14243a] pt-6">
+            <Link
+              href="/latest"
+              className="inline-flex items-center gap-2 bg-[#c8102e] px-5 py-3 text-sm font-bold text-white transition hover:bg-[#14243a]"
+            >
+              আরও খবর পড়ুন
+              <ArrowLeft className="rotate-180" size={17} />
+            </Link>
+          </div>
+        </article>
+      </main>
+
+      <Footer />
+    </>
   );
 }

@@ -39,25 +39,26 @@ type NewsDataArticle = {
 
 const categories: Record<string, { query: string; label: string }> = {
   latest: {
-    query: "Bangladesh OR world news OR cricket",
+    query:
+      '(Bangladesh OR Dhaka OR "Bangladesh news" OR "বাংলাদেশ")',
     label: "Latest News",
   },
   bangla: {
     query:
-      "Bangladesh news OR Dhaka news OR Bangladesh politics OR Bangladesh economy",
+      '(Bangladesh OR Dhaka OR "Bangladesh politics" OR "Bangladesh economy")',
     label: "Bangladesh",
   },
   international: {
-    query: "international news OR world news OR global affairs",
+    query: '"international news" OR "world news" OR "global affairs"',
     label: "World",
   },
   cricket: {
     query:
-      "cricket OR Bangladesh cricket OR ICC cricket OR international cricket",
+      'cricket OR "Bangladesh cricket" OR ICC OR "international cricket"',
     label: "Cricket",
   },
   magazine: {
-    query: "science OR technology OR business OR lifestyle",
+    query: 'science OR technology OR business OR lifestyle',
     label: "Features",
   },
 };
@@ -81,8 +82,9 @@ async function getNewsAPIArticles(
   }
 
   const selected = categories[category];
+
   const query = search
-    ? `(${selected.query}) AND "${search}"`
+    ? `(${selected.query}) AND "${search.replace(/"/g, "")}"`
     : selected.query;
 
   const params = new URLSearchParams({
@@ -93,10 +95,14 @@ async function getNewsAPIArticles(
   });
 
   const response = await fetch(
-    `https://newsapi.org/v2/everything?${params}`,
+    `https://newsapi.org/v2/everything?${params.toString()}`,
     {
-      headers: { "X-Api-Key": apiKey },
-      next: { revalidate: 900 },
+      headers: {
+        "X-Api-Key": apiKey,
+      },
+      next: {
+        revalidate: 900,
+      },
     },
   );
 
@@ -107,7 +113,7 @@ async function getNewsAPIArticles(
   const result = await response.json();
 
   if (result.status !== "ok") {
-    throw new Error(result.message || "NewsAPI failed");
+    throw new Error(result.message || "NewsAPI request failed");
   }
 
   const articles: NewsApiArticle[] = result.articles ?? [];
@@ -139,24 +145,31 @@ async function getNewsDataArticles(
   }
 
   const selected = categories[category];
+
   const query = search
-    ? `${selected.query} ${search}`
+    ? `(${selected.query}) AND (${search.replace(/"/g, "")})`
     : selected.query;
 
   const params = new URLSearchParams({
     apikey: apiKey,
     q: query,
-    language: "en",
     size: "10",
   });
 
-  if (category === "bangla") {
+  if (category === "bangla" || category === "latest") {
     params.set("country", "bd");
+    params.set("language", "bn,en");
+  } else {
+    params.set("language", "en");
   }
 
   const response = await fetch(
-    `https://newsdata.io/api/1/latest?${params}`,
-    { next: { revalidate: 900 } },
+    `https://newsdata.io/api/1/latest?${params.toString()}`,
+    {
+      next: {
+        revalidate: 900,
+      },
+    },
   );
 
   if (!response.ok) {
@@ -188,93 +201,113 @@ async function getNewsDataArticles(
     }));
 }
 
+// GET API
 export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
+  try {
+    const { searchParams } = new URL(request.url);
 
-  const requestedCategory = searchParams.get("category") ?? "latest";
+    const requestedCategory = searchParams.get("category") ?? "latest";
 
-  const category = Object.hasOwn(categories, requestedCategory)
-    ? requestedCategory
-    : "latest";
+    const category = Object.hasOwn(categories, requestedCategory)
+      ? requestedCategory
+      : "latest";
 
-  const search = searchParams.get("search")?.trim() ?? "";
+    const search = searchParams.get("search")?.trim() ?? "";
 
-  const [newsApiResult, newsDataResult] = await Promise.allSettled([
-    getNewsAPIArticles(category, search),
-    getNewsDataArticles(category, search),
-  ]);
+    const [newsApiResult, newsDataResult] = await Promise.allSettled([
+      getNewsAPIArticles(category, search),
+      getNewsDataArticles(category, search),
+    ]);
 
-  const newsApiArticles =
-    newsApiResult.status === "fulfilled" ? newsApiResult.value : [];
+    const newsApiArticles =
+      newsApiResult.status === "fulfilled" ? newsApiResult.value : [];
 
-  const newsDataArticles =
-    newsDataResult.status === "fulfilled" ? newsDataResult.value : [];
+    const newsDataArticles =
+      newsDataResult.status === "fulfilled" ? newsDataResult.value : [];
 
-  const seenTitles = new Set<string>();
-  const seenUrls = new Set<string>();
+    const seenTitles = new Set<string>();
+    const seenUrls = new Set<string>();
 
-  const articles = [...newsApiArticles, ...newsDataArticles]
-    .filter((article) => {
-      const title = normalizeTitle(article.title);
-      const normalizedUrl = article.url.trim().replace(/\/+$/, "");
+    const allArticles = [...newsDataArticles, ...newsApiArticles];
 
-      if (
-        !title ||
-        !normalizedUrl ||
-        seenTitles.has(title) ||
-        seenUrls.has(normalizedUrl)
-      ) {
-        return false;
-      }
+    const articles = allArticles
+      .filter((article) => {
+        const title = normalizeTitle(article.title);
+        const normalizedUrl = article.url.trim().replace(/\/+$/, "");
 
-      seenTitles.add(title);
-      seenUrls.add(normalizedUrl);
+        if (
+          !title ||
+          !normalizedUrl ||
+          seenTitles.has(title) ||
+          seenUrls.has(normalizedUrl)
+        ) {
+          return false;
+        }
 
-      return true;
-    })
-    .sort((a, b) => {
-      const dateA = Date.parse(a.publishedAt) || 0;
-      const dateB = Date.parse(b.publishedAt) || 0;
-      return dateB - dateA;
-    })
-    .slice(0, 50);
+        seenTitles.add(title);
+        seenUrls.add(normalizedUrl);
 
-  const sources = {
-    newsApi: newsApiResult.status === "fulfilled",
-    newsData: newsDataResult.status === "fulfilled",
-  };
+        return true;
+      })
+      .sort((a, b) => {
+        const dateA = Date.parse(a.publishedAt) || 0;
+        const dateB = Date.parse(b.publishedAt) || 0;
+        return dateB - dateA;
+      })
+      .slice(0, 50);
 
-  const errors = {
-    newsApi:
-      newsApiResult.status === "rejected"
-        ? newsApiResult.reason instanceof Error
-          ? newsApiResult.reason.message
-          : "NewsAPI unavailable"
-        : null,
-    newsData:
-      newsDataResult.status === "rejected"
-        ? newsDataResult.reason instanceof Error
-          ? newsDataResult.reason.message
-          : "NewsData.io unavailable"
-        : null,
-  };
+    const sources = {
+      newsApi: newsApiResult.status === "fulfilled",
+      newsData: newsDataResult.status === "fulfilled",
+    };
 
-  const anySourceAvailable = Object.values(sources).some(Boolean);
+    const errors = {
+      newsApi:
+        newsApiResult.status === "rejected"
+          ? newsApiResult.reason instanceof Error
+            ? newsApiResult.reason.message
+            : "NewsAPI unavailable"
+          : null,
 
-  return NextResponse.json(
-    {
-      success: anySourceAvailable,
-      category,
-      total: articles.length,
-      sources,
-      errors,
-      articles,
-    },
-    {
-      status: anySourceAvailable ? 200 : 502,
-      headers: {
-        "Cache-Control": "public, s-maxage=900, stale-while-revalidate=60",
+      newsData:
+        newsDataResult.status === "rejected"
+          ? newsDataResult.reason instanceof Error
+            ? newsDataResult.reason.message
+            : "NewsData.io unavailable"
+          : null,
+    };
+
+    const anySourceAvailable = Object.values(sources).some(Boolean);
+
+    return NextResponse.json(
+      {
+        success: anySourceAvailable,
+        category,
+        total: articles.length,
+        sources,
+        errors,
+        articles,
       },
-    },
-  );
+      {
+        status: anySourceAvailable ? 200 : 502,
+        headers: {
+          "Cache-Control":
+            "public, s-maxage=900, stale-while-revalidate=60",
+        },
+      },
+    );
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unable to fetch news";
+
+    return NextResponse.json(
+      {
+        success: false,
+        total: 0,
+        articles: [],
+        error: message,
+      },
+      { status: 500 },
+    );
+  }
 }
