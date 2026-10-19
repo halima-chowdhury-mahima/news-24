@@ -1,0 +1,75 @@
+
+import { NextResponse } from "next/server";
+import Parser from "rss-parser";
+
+export const revalidate = 900;
+
+const parser = new Parser();
+
+const feeds = [
+  {
+    category: "bangla",
+    url: "https://news.google.com/rss/search?q=বাংলাদেশ&hl=bn&gl=BD&ceid=BD:bn",
+  },
+  {
+    category: "international",
+    url: "https://news.google.com/rss/search?q=বিশ্ব+সংবাদ&hl=bn&gl=BD&ceid=BD:bn",
+  },
+  {
+    category: "cricket",
+    url: "https://news.google.com/rss/search?q=ক্রিকেট&hl=bn&gl=BD&ceid=BD:bn",
+  },
+];
+
+export async function GET() {
+  const results = await Promise.all(
+    feeds.map(async (feed) => {
+      try {
+        const response = await fetch(feed.url, {
+          next: { revalidate: 900 },
+        });
+
+        if (!response.ok) {
+          throw new Error(`RSS request failed: ${response.status}`);
+        }
+
+        const xml = await response.text();
+        const parsed = await parser.parseString(xml);
+
+        return parsed.items.map((item) => ({
+          title: item.title?.trim() || "শিরোনাম পাওয়া যায়নি",
+          url: item.link || "",
+          publishedAt: item.isoDate || item.pubDate || "",
+          category: feed.category,
+          source: parsed.title || "Google News",
+          summary: item.contentSnippet || "",
+          image: "/images/news-placeholder.svg",
+        })).filter((item) => item.url);
+      } catch (error) {
+        console.error(`RSS error (${feed.category}):`, error);
+        return [];
+      }
+    })
+  );
+
+  const news = results
+    .flat()
+    .sort((a, b) => {
+      const dateA = Date.parse(a.publishedAt) || 0;
+      const dateB = Date.parse(b.publishedAt) || 0;
+      return dateB - dateA;
+    });
+
+  return NextResponse.json(
+    {
+      success: true,
+      count: news.length,
+      news,
+    },
+    {
+      headers: {
+        "Cache-Control": "public, s-maxage=900, stale-while-revalidate=60",
+      },
+    }
+  );
+}
